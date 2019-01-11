@@ -13,34 +13,40 @@ import java.util.Scanner;
 import java.util.stream.Collectors;
 
 public class HostOne {
-
-    private static void showMenu() {
-        System.out.println("Choose action: HOST_ONE\n" +
-                "0. Exit\n" +
-                "1. Upload File\n" +
-                "2. Echo from server\n" +
-                "3. Show Content From HostTwo");
-    }
-
-    private static String path = "C:/TORrent_1";
+    private static String path = "D:/TORrent_1";
+    private static String fileNameToSaveOnThisHost = null;
+    private static String fileNameToDownloadFromThisHost = null;
+    private static long skipBytesWhenDownloadFromThisHost = 0L;
 
     public static void main(String[] args) {
-        createListener();
-        createDownloadListener();
+        createFileCheckerForUploadToThisHost();
+        createFileCheckerForDownloadFromThisHost();
+        createUploadListener();
+        createDownloadFileSkipBytesListener();
         createContentSharer();
 
-        while(true) {
+        while (true) {
             showMenu();
             Scanner scanner = new Scanner(System.in);
-            int choice = scanner.nextInt();
+            int choice;
+            try {
+                choice = scanner.nextInt();
+            } catch (Exception e) {
+                System.out.println(e.getMessage() + "\n\tWprowadź liczbę");
+                continue;
+            }
             switch (choice) {
-                case 0: System.exit(0);
-                case 1: uploadFile();
-                break;
-                case 2: echoFromServer();
-                break;
-                case 3: getContentFromServer();
-                break;
+                case 0:
+                    System.exit(0);
+                case 1:
+                    uploadFile();
+                    break;
+                case 2:
+                    downloadFromAnotherHost();
+                    break;
+                case 3:
+                    getContentFromServer();
+                    break;
                 default:
                     System.out.println("TRY AGAIN");
                     break;
@@ -48,46 +54,39 @@ public class HostOne {
         }
     }
 
-    private static void uploadFile(){
+    private static void showMenu() {
+        System.out.println("Choose action: HOST_ONE\n" +
+                "0. Exit\n" +
+                "1. Upload File to HostTwo\n" +
+                "2. Download File from HostTwo\n" +
+                "3. Show Content From HostTwo");
+    }
+
+    private static void uploadFile() {
         Scanner scanner2 = new Scanner(System.in);
         System.out.println("Enter file name to be uploaded:");
         String fileToUpload = scanner2.nextLine();
-        System.out.println("\tChosen file: " + path + "/" + fileToUpload);
-        File file = new File(path + "/" + fileToUpload);
-        try (Socket socket = new Socket(InetAddress.getLocalHost(), 11000)){
-            FileInputStream fis = new FileInputStream(file);
-            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-            byte[] bytes = new byte[(int)file.length()];
+        up(fileToUpload);
 
-            while (fis.read(bytes) > 0) {
-                dos.write(bytes);
-            }
-            dos.flush();
-        } catch (IOException e) {
-
-        }
     }
 
-    private static void echoFromServer(){
-        try(Socket socket = new Socket(InetAddress.getLocalHost(), 11001)) {
+    private static void downloadFromAnotherHost() {
+        Scanner scanner2 = new Scanner(System.in);
+        System.out.println("Enter file name to be downloaded:");
+        String fileToDownload = scanner2.nextLine();
+        String response = null;
+        try (Socket socket = new Socket(InetAddress.getLocalHost(), 11003)) {
             BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             PrintWriter output = new PrintWriter(socket.getOutputStream(), true);
-
-            while(true) {
-                Scanner scanner1 = new Scanner(System.in);
-                System.out.println("Enter string:");
-                String s = scanner1.nextLine();
-                if(s.equals("exit")) return;
-                output.println(s);
-                System.out.println(input.readLine());
-            }
+            output.println(fileToDownload);
+            response = input.readLine();
         } catch (IOException e) {
-
+            System.out.println(e.getMessage());
         }
     }
 
-    private static void getContentFromServer(){
-        try(Socket socket = new Socket(InetAddress.getLocalHost(), 11002)) {
+    private static void getContentFromServer() {
+        try (Socket socket = new Socket(InetAddress.getLocalHost(), 11002)) {
             BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             PrintWriter printWriter = new PrintWriter(socket.getOutputStream(), true);
             printWriter.println("showTheContent");
@@ -97,45 +96,93 @@ public class HostOne {
 
         }
     }
-    private static void createListener() {
-        (new Thread(() -> {
-            try (ServerSocket serverSocket = new ServerSocket(10000)) {
-                Socket socket = serverSocket.accept();
-                BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                PrintWriter output = new PrintWriter(socket.getOutputStream(), true);
-                while (true) {
-                    String s = input.readLine();
-                    output.println(s.toUpperCase());
-                }
-            } catch (IOException e) {
 
-            }
-        })).start();
-    }
-
-    private static void createDownloadListener() {
-        (new Thread(() -> {
+    private static void createFileCheckerForUploadToThisHost() {
+        new Thread(() -> {
             try (ServerSocket serverSocket = new ServerSocket(10001)) {
                 while (true) {
-                    DataInputStream dis = new DataInputStream(serverSocket.accept().getInputStream());
-                    FileOutputStream fos = new FileOutputStream(path + "/" + "toHostOne");
-                    byte[] buffer = new byte[4096];
-                    int filesize = 15123; // Send file size in separate msg
-                    int read = 0;
-                    int totalRead = 0;
-                    int remaining = filesize;
-                    while ((read = dis.read(buffer, 0, Math.min(buffer.length, remaining))) > 0) {
-                        totalRead += read;
-                        remaining -= read;
-                        System.out.println("read " + totalRead + " bytes.");
-                        fos.write(buffer, 0, read);
-                    }
-                    fos.flush();
+                    Socket socket = serverSocket.accept();
+                    BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                    PrintWriter output = new PrintWriter(socket.getOutputStream(), true);
+                    fileNameToSaveOnThisHost = input.readLine();
+                    File file = new File(path + "/" + fileNameToSaveOnThisHost);
+                    if (file.exists()) output.println(Long.toString(file.length()));
+                    else output.println("OK");
                 }
             } catch (IOException e) {
 
             }
-        })).start();
+        }).start();
+    }
+
+    private static void createFileCheckerForDownloadFromThisHost() {
+        new Thread(() -> {
+            try (ServerSocket serverSocket = new ServerSocket(10003)) {
+                while (true) {
+                    Socket socket = serverSocket.accept();
+                    BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                    PrintWriter output = new PrintWriter(socket.getOutputStream(), true);
+                    fileNameToDownloadFromThisHost = input.readLine();
+                    File file = new File(path + "/" + fileNameToDownloadFromThisHost);
+                    if (file.exists()) {
+                        up(fileNameToDownloadFromThisHost);
+                        output.println("OK");
+                    }
+                }
+            } catch (IOException e) {
+
+            }
+        }).start();
+    }
+
+    private static void createUploadListener() {
+        new Thread(() -> {
+            try (ServerSocket serverSocket = new ServerSocket(10000)) {
+                while (true) {
+                    DataInputStream dis = new DataInputStream(serverSocket.accept().getInputStream());
+                    FileOutputStream fos = new FileOutputStream(path + "/" + fileNameToSaveOnThisHost, true);
+                    byte[] buffer = new byte[4096];
+                    int read = 0;
+                    while ((read = dis.read(buffer, 0, buffer.length)) > 0) {
+                        fos.write(buffer, 0, read);
+                    }
+                    fos.close();
+                    fileNameToSaveOnThisHost = null;
+                }
+            } catch (IOException e) {
+
+            }
+        }).start();
+    }
+
+    private static void createDownloadFileSkipBytesListener() {
+        new Thread(() -> {
+            try (ServerSocket serverSocket = new ServerSocket(10005)) {
+                while (true) {
+                    Socket socket = serverSocket.accept();
+                    BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                    PrintWriter output = new PrintWriter(socket.getOutputStream(), true);
+
+                    skipBytesWhenDownloadFromThisHost = Long.parseLong(input.readLine());
+                    output.println("SKIP_BYTES_RECEIVED");
+                    try (Socket socket1 = new Socket(InetAddress.getLocalHost(), 11000)) {
+                        FileInputStream fis = new FileInputStream(path + "/" + fileNameToDownloadFromThisHost);
+                        DataOutputStream dos = new DataOutputStream(socket1.getOutputStream());
+                        fis.skip(skipBytesWhenDownloadFromThisHost);
+                        byte[] bytes = new byte[2048];
+
+                        while (fis.read(bytes) > 0) {
+                            dos.write(bytes);
+                        }
+                        dos.flush();
+                    } catch (IOException e) {
+                        System.out.println(e.getMessage());
+                    }
+                }
+            } catch (IOException e) {
+                System.out.println(e.getMessage());
+            }
+        }).start();
     }
 
     private static void createContentSharer() {
@@ -148,7 +195,7 @@ public class HostOne {
 
                     String str = input.readLine();
 
-                    if(str != null && str.equals("showTheContent")) {
+                    if (str != null && str.equals("showTheContent")) {
                         List<String> files = getContent(path);
                         for (String s : files) {
                             output.write(s);
@@ -178,6 +225,7 @@ public class HostOne {
     private static String getMD5(String file) {
         String HEXES = "0123456789ABCDEF";
         try {
+            if (new File(file).length() >= 2e+9) return null;
             byte[] b = Files.readAllBytes(Paths.get(file));
             byte[] hash = MessageDigest.getInstance("MD5").digest(b);
             if (hash == null) {
@@ -191,6 +239,43 @@ public class HostOne {
             return hex.toString();
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private static void up(String fileToUpload) {
+        String response = null;
+        try (Socket socket = new Socket(InetAddress.getLocalHost(), 11001)) {
+            BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            PrintWriter output = new PrintWriter(socket.getOutputStream(), true);
+            output.println(fileToUpload);
+            response = input.readLine();
+        } catch (IOException e) {
+
+        }
+        if (response == null) {
+            System.out.println("Can't upload file");
+            return;
+        }
+        File file = new File(path + "/" + fileToUpload);
+        try (Socket socket = new Socket(InetAddress.getLocalHost(), 11000)) {
+            FileInputStream fis = new FileInputStream(file);
+            if (!response.equals("OK")) {
+                if (Long.parseLong(response) >= file.length()) {
+                    System.out.println("File already exists");
+                    return;
+                }
+                fis.skip(Long.parseLong(response));
+            }
+            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+            byte[] bytes = new byte[2048];
+
+            while (fis.read(bytes) > 0) {
+                dos.write(bytes);
+            }
+            fis.close();
+            dos.close();
+        } catch (IOException e) {
+            System.out.println("Error upload file " + fileToUpload);
         }
     }
 }
